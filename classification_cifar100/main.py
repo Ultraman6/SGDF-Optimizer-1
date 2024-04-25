@@ -11,9 +11,8 @@ import argparse
 import time
 import csv
 from models import ResNet34, DenseNet121,vgg11
-from torch.optim import Adam, SGD,RAdam,AdamW
-from optimizers import MSVAG
-from SGDF import SGDF
+from torch.optim import Adam, SGD, RAdam, AdamW
+from optimizers import MSVAG, SGDF, AdaBound, Lion, SophiaG#, MomentumKOALA
 
 
 
@@ -24,15 +23,27 @@ def get_parser():
     parser.add_argument('--model', default='resnet', type=str, help='model',
                         choices=['resnet', 'densenet', 'vgg'])
     parser.add_argument('--optim', default='adam', type=str, help='optimizer',
-                        choices=['sgdf','sgd', 'adam', 'radam', 'adamw', 'msvag'])
+                        choices=['sgdf','sgd', 'adam', 'radam', 'adamw', 'msvag', 'lion', 'sophia', 'adabound',]) #'koala-m'])
     parser.add_argument('--run', default=0, type=int, help='number of runs')
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--lr-gamma', default=0.1, type=float, help='learning rate decay')
+    parser.add_argument('--final_lr', default=0.1, type=float,
+                        help='final learning rate of AdaBound')
+    parser.add_argument('--gamma', default=1e-3, type=float,
+                        help='convergence speed term of AdaBound')
     parser.add_argument('--eps', default=1e-8, type=float, help='eps for var adam')
     parser.add_argument('--momentum', default=0.9, type=float, help='momentum term')
     parser.add_argument('--beta1', default=0.9, type=float, help='Adam coefficients beta_1')
     parser.add_argument('--beta2', default=0.999, type=float, help='Adam coefficients beta_2') 
-    parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
+    parser.add_argument('--rho', default=0.04, type=float, help='rho for adan') 
+    # KOALA specific args
+    #parser.add_argument('--r', type=float, help='None for adaptive', default=None)
+    #parser.add_argument('--sw', type=float, default=0.1)
+    #parser.add_argument('--sv', type=float, default=0.1)
+    #parser.add_argument('--alpha', type=float, default=0.9)
+    #parser.add_argument('--sigma', type=float, default=0.1)
+    
+    parser.add_argument('--resume', action='store_true', help='resume from checkpoint')
     parser.add_argument('--batchsize', type=int, default=128, help='batch size')
     parser.add_argument('--weight_decay', default=5e-4, type=float,
                         help='weight decay for optimizers')
@@ -64,18 +75,25 @@ def build_dataset(args):
     return train_loader, test_loader
 
 
-def get_ckpt_name(model='vgg', optimizer='sgd', lr=0.001, momentum=0.9,
-                  beta1=0.9, beta2=0.999,eps=1e-8, weight_decay=5e-4,
-                  reset = False, run = 0, weight_decouple = False, rectify = False):
+def get_ckpt_name(model='resnet', optimizer='sgd', lr=0.001, final_lr=0.1, momentum=0.9,
+                  beta1=0.9, beta2=0.999, gamma=1e-3, eps=1e-8, weight_decay=5e-4, rho=0.04,
+                  #r=None, sw= 0.1, sv=0.1, alpha=0.9, sigma=0.1,
+                  reset = False, run = 0,):
     name = {
-        'sgdf': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2,weight_decay, eps, run),
+        'sgdf': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2, weight_decay, eps, run),
         'sgd': 'lr{}-momentum{}-wdecay{}-run{}'.format(lr, momentum,weight_decay, run),
-        'adam': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2,weight_decay, eps, run),
-        'radam': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2,weight_decay, eps, run),
-        'adamw': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2,weight_decay, eps, run),
-        'msvag': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2,weight_decay, eps, run),
+        'adam': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2, weight_decay, eps, run),
+        'radam': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2, weight_decay, eps, run),
+        'adamw': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2, weight_decay, eps, run),
+        'msvag': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2, weight_decay, eps, run),
+        'lion': 'lr{}-betas{}-{}-wdecay{}-run{}'.format(lr, beta1, beta2, weight_decay,  run),
+        'sophia': 'lr{}-betas{}-{}-rho{}-wdecay{}-run{}'.format(lr, beta1, beta2, rho, weight_decay, run),
+        'adabound': 'lr{}-betas{}-{}-final_lr{}-gamma{}-wdecay{}-run{}'.format(lr, beta1, beta2, final_lr, gamma, weight_decay, run),
+        #'koala-m': 'lr{}-r{}-sw{}-sv{}-alpha{}-sigma{}-wdecay{}-run{}'.format(lr, r, sw, sv, alpha, sigma, weight_decay, run),
+
     }[optimizer]
     return '{}-{}-{}-reset{}'.format(model, optimizer, name, str(reset))
+
 
 
 def load_checkpoint(ckpt_name):
@@ -124,6 +142,20 @@ def create_optimizer(args, model_params):
     elif args.optim == 'msvag':
         return MSVAG(model_params, args.lr, betas=(args.beta1, args.beta2),
                           weight_decay=args.weight_decay, eps=args.eps)
+    elif args.optim == 'lion':
+        return Lion(model_params, args.lr, betas=(args.beta1, args.beta2),
+                          weight_decay=args.weight_decay)
+    elif args.optim == 'sophia':
+        return SophiaG(model_params, args.lr, betas=(args.beta1, args.beta2),
+                          rho=args.rho, weight_decay=args.weight_decay)
+    elif args.optim == 'adabound':
+        return AdaBound(model_params, args.lr, betas=(args.beta1, args.beta2),
+                        final_lr=args.final_lr, gamma=args.gamma,
+                        weight_decay=args.weight_decay)
+    #elif args.optim == 'koala-m':
+        return MomentumKOALA(model_params, lr=args.lr, r=args.r, sw=args.sw, sv=args.sv, 
+                             alpha=args.alpha, sigma=args.sigma,
+                             weight_decay=args.weight_decay)
     else:
         print('Optimizer not found')
 
@@ -189,9 +221,12 @@ def main():
     train_loader, test_loader = build_dataset(args)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    ckpt_name = get_ckpt_name(model=args.model, optimizer=args.optim, lr=args.lr,
+    ckpt_name = get_ckpt_name(model=args.model, optimizer=args.optim, lr=args.lr, final_lr=args.final_lr,
                               momentum=args.momentum, eps=args.eps,
                               beta1=args.beta1, beta2=args.beta2, 
+                              #r=args.r, sw=args.sw, sv=args.sv,
+                              #alpha=args.alpha, sigma=args.sigma,
+                              rho=args.rho, gamma= args.gamma,                              
                               reset=args.reset, run=args.run,
                               weight_decay=args.weight_decay)
     print('ckpt_name')

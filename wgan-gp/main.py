@@ -12,12 +12,11 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
 from torch import autograd
-from optimizers import Fromage,MSVAG,Yogi
+from optimizers import Fromage, MSVAG, Yogi, SGDF
 from adabound import AdaBound
-from torch.optim import SGD, Adam,AdamW,RAdam,RMSprop
+from torch.optim import SGD, Adam, AdamW, RAdam, RMSprop
 from fid_score import calculate_fid_given_paths
 import pandas as pd
-from  SGDF import SGDF
 BATCH_SIZE=64
 LAMBDA = 10
 

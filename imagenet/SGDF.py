@@ -55,7 +55,8 @@ class SGDF(Optimizer):
 
                 # Bias correction
                 bias_correction1 = 1 - beta1 ** state['step']
-                bias_correction2 = 1 - beta2 ** state['step']
+                #bias_correction2 = 1 - beta2 ** state['step']
+                bias_correction2 = (1 + beta1) * (1 - beta2**state['step']) / ((1 - beta1) * (1 - beta1**(2*state['step'])))
                 
                 exp_avg_corr = exp_avg / bias_correction1
                 exp_var_corr = exp_var / bias_correction2

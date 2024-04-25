@@ -3,7 +3,7 @@ import datetime
 
 import torch
 from torch.optim import Adam, SGD,RAdam,AdamW
-from sgdf import SGDF
+from SGDF import SGDF
 from torch.utils.data import ConcatDataset
 import transforms
 from network_files import FasterRCNN, FastRCNNPredictor
