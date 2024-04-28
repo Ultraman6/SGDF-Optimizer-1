@@ -202,7 +202,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.arch == 'shufflenet_v2_x0_5':
            model = shufflenet_v2_x0_5(pretrained=False)
         elif args.arch == 'se_resnet18':
-           model = models.resnet18()
+           model = models.se_resnet18()
         else:
            model = models.__dict__[args.arch]()
     '''
