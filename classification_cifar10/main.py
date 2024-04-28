@@ -13,7 +13,7 @@ import time
 import csv
 from models import ResNet34, DenseNet121, vgg11
 from torch.optim import Adam, SGD, RAdam, AdamW
-from optimizers import MSVAG, SGDF, AdaBound, Lion, SophiaG#, MomentumKOALA
+from optimizers import MSVAG, SGDF, AdaBound, Lion, SophiaG, MomentumKOALA
 
 def get_parser():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
