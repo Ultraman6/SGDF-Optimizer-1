@@ -244,16 +244,12 @@ def main():
         curve = torch.load(curve)
         train_accuracies = curve['train_acc']
         test_accuracies = curve['test_acc']
-        train_losses = curve['train_loss']
-        test_losses = curve['test_loss']
     else:
         ckpt = None
         best_acc = 0
         start_epoch = -1
         train_accuracies = []
         test_accuracies = []
-        train_losses = []
-        test_losses = []
     net = build_model(args, device, ckpt=ckpt)
     criterion = nn.CrossEntropyLoss()
     optimizer = create_optimizer(args, net.parameters())
