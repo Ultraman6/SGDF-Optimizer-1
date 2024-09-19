@@ -237,22 +237,18 @@ def main():
     if args.resume:
         ckpt = load_checkpoint(ckpt_name)
         best_acc = ckpt['acc']
-        start_epoch = ckpt['epoch']  
+        start_epoch = ckpt['epoch']
 
-        curve = os.path.join('curve', ckpt_name)
+        curve = os.path.join('curve', ckpt_name)     
         curve = torch.load(curve)
         train_accuracies = curve['train_acc']
         test_accuracies = curve['test_acc']
-        train_losses = curve['train_loss']
-        test_losses = curve['test_loss']
     else:
         ckpt = None
         best_acc = 0
         start_epoch = -1
         train_accuracies = []
         test_accuracies = []
-        train_losses = []
-        test_losses = []
 
     net = build_model(args, device, ckpt=ckpt)
     criterion = nn.CrossEntropyLoss()
