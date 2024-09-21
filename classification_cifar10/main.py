@@ -264,9 +264,7 @@ def main():
         adjust_learning_rate(optimizer, epoch, step_size=args.decay_epoch, gamma=args.lr_gamma, reset = args.reset)
         train_metrics = train(net, epoch, device, train_loader, optimizer, criterion, args)
         test_metrics = test(net, device, test_loader, criterion)
-        train_loss = train_metrics['loss']
         train_acc = train_metrics['accuracy']
-        test_loss = test_metrics['loss']
         test_acc = test_metrics['accuracy']
         end = time.time()
         print('Time: {}'.format(end-start))
@@ -286,10 +284,7 @@ def main():
 
         train_accuracies.append(train_acc)
         test_accuracies.append(test_acc)
-        train_losses.append(train_loss)
-        test_losses.append(test_loss)
         
-
         if not os.path.isdir('curve'):
             os.mkdir('curve')
         torch.save({'train_acc': train_accuracies, 'test_acc': test_accuracies},
