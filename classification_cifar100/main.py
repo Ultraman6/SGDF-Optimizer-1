@@ -132,7 +132,7 @@ def create_optimizer(args, model_params):
                          weight_decay=args.weight_decay)
     elif args.optim == 'adam':
         return Adam(model_params, args.lr, betas=(args.beta1, args.beta2),
-                           eps=args.eps)
+                          weight_decay=args.weight_decay, eps=args.eps)
     elif args.optim == 'radam':
         return RAdam(model_params, args.lr, betas=(args.beta1, args.beta2),
                         weight_decay=args.weight_decay, eps=args.eps)
