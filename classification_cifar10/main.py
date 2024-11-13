@@ -13,7 +13,7 @@ import time
 import csv
 from models import ResNet34, DenseNet121, vgg11
 from torch.optim import Adam, SGD, RAdam, AdamW
-from optimizers import MSVAG, SGDF, AdaBound, Lion, SophiaG, MomentumKOALA
+from optimizers import MSVAG, SGDF, AdaBound, Lion, SophiaG, MomentumKOALA, AdaBelief
 
 def get_parser():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
@@ -22,7 +22,7 @@ def get_parser():
     parser.add_argument('--model', default='vgg', type=str, help='model',
                         choices=['resnet', 'densenet', 'vgg'])
     parser.add_argument('--optim', default='adam', type=str, help='optimizer',
-                        choices=['sgdf', 'sgd', 'adam', 'radam', 'adamw','msvag', 'lion', 'sophia', ])#'koala-m'])
+                        choices=['sgdf', 'sgd', 'adam', 'radam', 'adamw','msvag', 'lion', 'sophia', 'adabelief'])#'koala-m'])
     parser.add_argument('--run', default=0, type=int, help='number of runs')
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--lr-gamma', default=0.1, type=float, help='learning rate')
@@ -54,6 +54,10 @@ def get_parser():
 
 def build_dataset(args):
     print('==> Preparing data..')
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(base_dir, 'data')
+    
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -66,12 +70,12 @@ def build_dataset(args):
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
 
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True,
+    trainset = torchvision.datasets.CIFAR10(data_dir, train=True, download=True,
                                             transform=transform_train)
     train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batchsize, shuffle=True,
                                                num_workers=2)
 
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True,
+    testset = torchvision.datasets.CIFAR10(data_dir, train=False, download=True,
                                            transform=transform_test)
     test_loader = torch.utils.data.DataLoader(testset, batch_size=args.batchsize, shuffle=False, num_workers=2)
 
@@ -93,6 +97,7 @@ def get_ckpt_name(model='resnet', optimizer='sgd', lr=0.001, final_lr=0.1, momen
         'msvag': 'lr{}-betas{}-{}-wdecay{}-eps{}-run{}'.format(lr, beta1, beta2,weight_decay, eps, run),
         'lion': 'lr{}-betas{}-{}-wdecay{}-run{}'.format(lr, beta1, beta2, weight_decay,  run),
         'sophia': 'lr{}-betas{}-{}-rho{}-wdecay{}-run{}'.format(lr, beta1, beta2, rho, weight_decay, run),
+        'adabelief': 'lr{}-betas{}-{}-eps{}-wdecay{}-run{}'.format(lr, beta1, beta2, eps, weight_decay, run),
         'adabound': 'lr{}-betas{}-{}-final_lr{}-gamma{}-wdecay{}-run{}'.format(lr, beta1, beta2, final_lr, gamma,weight_decay, run),
         'koala-m': 'lr{}-r{}-sw{}-sv{}-alpha{}-sigma{}-wdecay{}-run{}'.format(lr, r, sw, sv, alpha, sigma, weight_decay, run),
 
@@ -102,8 +107,10 @@ def get_ckpt_name(model='resnet', optimizer='sgd', lr=0.001, final_lr=0.1, momen
 
 def load_checkpoint(ckpt_name):
     print('==> Resuming from checkpoint..')
-    path = os.path.join('checkpoint', ckpt_name)
-    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    checkpoint_dir = os.path.join(base_dir, 'checkpoint')
+    path = os.path.join(checkpoint_dir, ckpt_name)
+    assert os.path.isdir(checkpoint_dir), 'Error: no checkpoint directory found!'
     assert os.path.exists(path), 'Error: checkpoint {} not found'.format(ckpt_name)
     return torch.load(path)
 
@@ -152,6 +159,11 @@ def create_optimizer(args, model_params):
     elif args.optim == 'sophia':
         return SophiaG(model_params, args.lr, betas=(args.beta1, args.beta2),
                           rho=args.rho, weight_decay=args.weight_decay)
+    elif args.optim == 'adabelief':
+        return AdaBelief(model_params, args.lr, betas=(args.beta1, args.beta2),
+                        weight_decay=args.weight_decay, eps=args.eps,amsgrad=False, 
+                        weight_decouple=False, fixed_decay=False, rectify=False,
+                        degenerated_to_sgd=False, print_change_log=False)
     elif args.optim == 'adabound':
         return AdaBound(model_params, args.lr, betas=(args.beta1, args.beta2),
                         final_lr=args.final_lr, gamma=args.gamma,
@@ -235,6 +247,11 @@ def main():
                               rho=args.rho, gamma= args.gamma,
                               weight_decay=args.weight_decay)
     print('ckpt_name')
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__)) 
+    curve_dir = os.path.join(base_dir, 'curve') 
+    checkpoint_dir = os.path.join(base_dir, 'checkpoint')  
+    
     if args.resume:
         ckpt = load_checkpoint(ckpt_name)
         best_acc = ckpt['acc']
@@ -256,8 +273,6 @@ def main():
     #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.decay_epoch, gamma=0.1,
     #                                      last_epoch=start_epoch)
 
-
-
     for epoch in range(start_epoch + 1, args.total_epoch):
         start = time.time()
         #scheduler.step()
@@ -277,21 +292,22 @@ def main():
                 'acc': test_acc,
                 'epoch': epoch,
             }
-            if not os.path.isdir('checkpoint'):
-                os.mkdir('checkpoint')
-            torch.save(state, os.path.join('checkpoint', ckpt_name))
+            if not os.path.isdir(checkpoint_dir):
+                os.mkdir(checkpoint_dir)
+            torch.save(state, os.path.join(checkpoint_dir, ckpt_name))
             best_acc = test_acc
 
         train_accuracies.append(train_acc)
         test_accuracies.append(test_acc)
         
-        if not os.path.isdir('curve'):
-            os.mkdir('curve')
+        # Ensure curve directory exists
+        if not os.path.isdir(curve_dir):
+            os.mkdir(curve_dir)
+            
+        # Save accuracies in the curve directory
         torch.save({'train_acc': train_accuracies, 'test_acc': test_accuracies},
-        os.path.join('curve', ckpt_name))
+                    os.path.join(curve_dir, ckpt_name))
   
-        
-        
 if __name__ == '__main__':
 
     main()
