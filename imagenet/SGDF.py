@@ -41,6 +41,7 @@ class SGDF(Optimizer):
                     state['exp_avg'] = torch.zeros_like(grad)
                     state['exp_var'] = torch.zeros_like(grad)
 
+                # 引用赋值
                 exp_avg = state['exp_avg']
                 exp_var = state['exp_var']
 
